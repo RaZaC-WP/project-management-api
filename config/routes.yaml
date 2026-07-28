@@ -9,3 +9,6 @@
 
 controllers:
     resource: routing.controllers
+
+lexik_jwt:
+    resource: routes/lexik_jwt_authentication.yaml
