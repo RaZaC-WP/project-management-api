@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 use App\Enum\TaskStatus;
+use OpenApi\Attributes as OA;
 
 #[Route('/api/tasks')]
 final class TaskController extends AbstractController
@@ -42,6 +43,33 @@ final class TaskController extends AbstractController
     }
 
 
+    #[OA\Post(
+        path: '/api/tasks',
+        summary: 'Create a new task',
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                ref: '#/components/schemas/Task'
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: 'Task created successfully',
+                content: new OA\JsonContent(
+                    ref: '#/components/schemas/Task'
+                )
+            ),
+            new OA\Response(
+                response: 400,
+                description: 'Invalid data'
+            ),
+            new OA\Response(
+                response: 404,
+                description: 'Project or employee not found'
+            )
+        ]
+    )]
     #[Route('', methods: ['POST'])]
     public function create(
         Request $request,
