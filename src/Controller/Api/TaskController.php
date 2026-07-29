@@ -11,15 +11,11 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use App\Enum\TaskStatus;
 
 #[Route('/api/tasks')]
 final class TaskController extends AbstractController
 {
-    private const ALLOWED_STATUSES = [
-        'PENDING',
-        'IN_PROGRESS',
-        'DONE'
-    ];
 
     #[Route('', methods: ['GET'])]
     public function index(
@@ -71,9 +67,11 @@ final class TaskController extends AbstractController
             ], 400);
         }
 
-        $status = strtoupper($data['status'] ?? 'PENDING');
+        $status = strtoupper(
+            $data['status'] ?? TaskStatus::PENDING->value
+        );
 
-        if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+        if (!$this->isValidStatus($status)) {
             return $this->json([
                 'error' => 'Invalid status'
             ], 400);
@@ -206,7 +204,7 @@ final class TaskController extends AbstractController
 
             $status = strtoupper($data['status']);
 
-            if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+            if (!$this->isValidStatus($status)) {
                 return $this->json([
                     'error' => 'Invalid status'
                 ], 400);
@@ -214,7 +212,6 @@ final class TaskController extends AbstractController
 
             $task->setStatus($status);
         }
-
 
         if (isset($data['dueDate'])) {
 
@@ -268,6 +265,17 @@ final class TaskController extends AbstractController
         ]);
     }
 
+    private function isValidStatus(string $status): bool
+    {
+        return in_array(
+            $status,
+            array_map(
+                fn(TaskStatus $status) => $status->value,
+                TaskStatus::cases()
+            ),
+            true
+        );
+    }
     private function taskToArray(Task $task): array
     {
         return [

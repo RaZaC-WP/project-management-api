@@ -5,6 +5,7 @@ namespace App\Entity;
 use App\Repository\TaskRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use App\Enum\TaskStatus;
 
 #[ORM\Entity(repositoryClass: TaskRepository::class)]
 #[ORM\Table(name: 'tasks')]
@@ -22,7 +23,7 @@ class Task
     private ?string $description = null;
 
     #[ORM\Column(length: 30)]
-    private ?string $status = 'PENDING';
+    private ?string $status = TaskStatus::PENDING->value;
 
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt;
