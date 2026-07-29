@@ -3,6 +3,7 @@
 namespace App\Controller\Api;
 
 use App\Entity\Task;
+use App\Enum\TaskStatus;
 use App\Repository\TaskRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\EmployeeRepository;
@@ -11,27 +12,43 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
-use App\Enum\TaskStatus;
 use OpenApi\Attributes as OA;
 
 #[Route('/api/tasks')]
 final class TaskController extends AbstractController
 {
-
     #[Route('', methods: ['GET'])]
     public function index(
         Request $request,
         TaskRepository $taskRepository
     ): JsonResponse {
 
+        $status = $request->query->get('status');
+
+        if ($status !== null) {
+
+            $status = strtoupper($status);
+
+            if (!$this->isValidStatus($status)) {
+                return $this->json([
+                    'error' => 'Invalid status filter',
+                    'allowedStatuses' => array_map(
+                        fn(TaskStatus $status) => $status->value,
+                        TaskStatus::cases()
+                    )
+                ], 400);
+            }
+        }
+
+
         $tasks = $taskRepository->findByFilters(
-            $request->query->get('status'),
+            $status,
             $request->query->get('project')
-            ? (int) $request->query->get('project')
-            : null,
+                ? (int) $request->query->get('project')
+                : null,
             $request->query->get('employee')
-            ? (int) $request->query->get('employee')
-            : null
+                ? (int) $request->query->get('employee')
+                : null
         );
 
         return $this->json(
@@ -83,11 +100,12 @@ final class TaskController extends AbstractController
             true
         );
 
-        if (!$data) {
+        if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
                 'error' => 'Invalid JSON'
             ], 400);
         }
+
 
         if (!isset($data['title'], $data['projectId'])) {
             return $this->json([
@@ -95,9 +113,35 @@ final class TaskController extends AbstractController
             ], 400);
         }
 
+
+        if (!is_string($data['title'])) {
+            return $this->json([
+                'error' => 'Title must be a string'
+            ], 400);
+        }
+
+
+        if (
+            isset($data['description']) &&
+            !is_string($data['description'])
+        ) {
+            return $this->json([
+                'error' => 'Description must be a string'
+            ], 400);
+        }
+
+
+        if (!is_int($data['projectId'])) {
+            return $this->json([
+                'error' => 'projectId must be an integer'
+            ], 400);
+        }
+
+
         $status = strtoupper(
-            $data['status'] ?? TaskStatus::PENDING->value
+            (string) ($data['status'] ?? TaskStatus::PENDING->value)
         );
+
 
         if (!$this->isValidStatus($status)) {
             return $this->json([
@@ -105,9 +149,11 @@ final class TaskController extends AbstractController
             ], 400);
         }
 
+
         $project = $projectRepository->find(
             $data['projectId']
         );
+
 
         if (!$project) {
             return $this->json([
@@ -115,13 +161,23 @@ final class TaskController extends AbstractController
             ], 404);
         }
 
+
         $employee = null;
 
+
         if (isset($data['employeeId'])) {
+
+            if (!is_int($data['employeeId'])) {
+                return $this->json([
+                    'error' => 'employeeId must be an integer'
+                ], 400);
+            }
+
 
             $employee = $employeeRepository->find(
                 $data['employeeId']
             );
+
 
             if (!$employee) {
                 return $this->json([
@@ -130,40 +186,59 @@ final class TaskController extends AbstractController
             }
         }
 
+
         $task = new Task();
 
+
         $task->setTitle($data['title']);
+
         $task->setDescription(
             $data['description'] ?? null
         );
 
         $task->setStatus($status);
 
+
         if (isset($data['dueDate'])) {
 
-            try {
-                $task->setDueDate(
-                    new \DateTimeImmutable($data['dueDate'])
-                );
-            } catch (\Exception $e) {
+            $dueDate = \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                $data['dueDate']
+            );
 
+
+            $errors = \DateTimeImmutable::getLastErrors();
+
+
+            if (
+                !$dueDate ||
+                ($errors !== false && $errors['warning_count'] > 0) ||
+                ($errors !== false && $errors['error_count'] > 0)
+            ) {
                 return $this->json([
-                    'error' => 'Invalid dueDate format'
+                    'error' => 'Invalid dueDate format. Expected Y-m-d'
                 ], 400);
             }
+
+
+            $task->setDueDate($dueDate);
         }
+
 
         $task->setProject($project);
         $task->setEmployee($employee);
 
+
         $entityManager->persist($task);
         $entityManager->flush();
+
 
         return $this->json(
             $this->taskToArray($task),
             201
         );
     }
+
 
     #[Route('/{id}', methods: ['GET'])]
     public function show(
@@ -173,16 +248,19 @@ final class TaskController extends AbstractController
 
         $task = $taskRepository->find($id);
 
+
         if (!$task) {
             return $this->json([
                 'error' => 'Task not found'
             ], 404);
         }
 
+
         return $this->json(
             $this->taskToArray($task)
         );
     }
+
 
     #[Route('/{id}', methods: ['PUT'])]
     public function update(
@@ -193,6 +271,7 @@ final class TaskController extends AbstractController
     ): JsonResponse {
 
         $task = $taskRepository->find($id);
+
 
         if (!$task) {
             return $this->json([
@@ -207,7 +286,7 @@ final class TaskController extends AbstractController
         );
 
 
-        if (!$data) {
+        if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
                 'error' => 'Invalid JSON'
             ], 400);
@@ -215,22 +294,37 @@ final class TaskController extends AbstractController
 
 
         if (isset($data['title'])) {
-            $task->setTitle(
-                $data['title']
-            );
+
+            if (!is_string($data['title'])) {
+                return $this->json([
+                    'error' => 'Title must be a string'
+                ], 400);
+            }
+
+
+            $task->setTitle($data['title']);
         }
 
 
         if (isset($data['description'])) {
-            $task->setDescription(
-                $data['description']
-            );
+
+            if (!is_string($data['description'])) {
+                return $this->json([
+                    'error' => 'Description must be a string'
+                ], 400);
+            }
+
+
+            $task->setDescription($data['description']);
         }
 
 
         if (isset($data['status'])) {
 
-            $status = strtoupper($data['status']);
+            $status = strtoupper(
+                (string) $data['status']
+            );
+
 
             if (!$this->isValidStatus($status)) {
                 return $this->json([
@@ -238,22 +332,34 @@ final class TaskController extends AbstractController
                 ], 400);
             }
 
+
             $task->setStatus($status);
         }
 
+
         if (isset($data['dueDate'])) {
 
-            try {
-                $task->setDueDate(
-                    new \DateTimeImmutable($data['dueDate'])
-                );
+            $dueDate = \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                $data['dueDate']
+            );
 
-            } catch (\Exception $e) {
 
+            $errors = \DateTimeImmutable::getLastErrors();
+
+
+            if (
+                !$dueDate ||
+                ($errors !== false && $errors['warning_count'] > 0) ||
+                ($errors !== false && $errors['error_count'] > 0)
+            ) {
                 return $this->json([
-                    'error' => 'Invalid dueDate format'
+                    'error' => 'Invalid dueDate format. Expected Y-m-d'
                 ], 400);
             }
+
+
+            $task->setDueDate($dueDate);
         }
 
 
@@ -265,6 +371,7 @@ final class TaskController extends AbstractController
         );
     }
 
+
     #[Route('/{id}', methods: ['DELETE'])]
     public function delete(
         int $id,
@@ -273,6 +380,7 @@ final class TaskController extends AbstractController
     ): JsonResponse {
 
         $task = $taskRepository->find($id);
+
 
         if (!$task) {
             return $this->json([
@@ -293,6 +401,7 @@ final class TaskController extends AbstractController
         ]);
     }
 
+
     private function isValidStatus(string $status): bool
     {
         return in_array(
@@ -304,6 +413,8 @@ final class TaskController extends AbstractController
             true
         );
     }
+
+
     private function taskToArray(Task $task): array
     {
         return [

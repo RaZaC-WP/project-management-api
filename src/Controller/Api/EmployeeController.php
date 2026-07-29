@@ -28,15 +28,6 @@ final class EmployeeController extends AbstractController
         );
     }
 
-    private function employeeToArray(Employee $employee): array
-    {
-        return [
-            'id' => $employee->getId(),
-            'fullName' => $employee->getFullName(),
-            'email' => $employee->getEmail(),
-            'position' => $employee->getPosition(),
-        ];
-    }
 
     #[Route('', methods: ['POST'])]
     public function create(
@@ -49,32 +40,73 @@ final class EmployeeController extends AbstractController
             true
         );
 
-        if (!$data) {
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
                 'error' => 'Invalid JSON'
             ], 400);
         }
 
-        if (!isset($data['fullName'], $data['email'], $data['position'])) {
+
+        if (
+            !isset(
+                $data['fullName'],
+                $data['email'],
+                $data['position']
+            )
+        ) {
             return $this->json([
                 'error' => 'FullName, email and position are required'
             ], 400);
         }
 
+
+        if (!is_string($data['fullName'])) {
+            return $this->json([
+                'error' => 'FullName must be a string'
+            ], 400);
+        }
+
+
+        if (!is_string($data['email'])) {
+            return $this->json([
+                'error' => 'Email must be a string'
+            ], 400);
+        }
+
+
+        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            return $this->json([
+                'error' => 'Invalid email format'
+            ], 400);
+        }
+
+
+        if (!is_string($data['position'])) {
+            return $this->json([
+                'error' => 'Position must be a string'
+            ], 400);
+        }
+
+
         $employee = new Employee();
+
 
         $employee->setFullName($data['fullName']);
         $employee->setEmail($data['email']);
         $employee->setPosition($data['position']);
 
+
         $entityManager->persist($employee);
         $entityManager->flush();
+
 
         return $this->json(
             $this->employeeToArray($employee),
             201
         );
     }
+
 
     #[Route('/{id}', methods: ['GET'])]
     public function show(
@@ -84,16 +116,19 @@ final class EmployeeController extends AbstractController
 
         $employee = $employeeRepository->find($id);
 
+
         if (!$employee) {
             return $this->json([
                 'error' => 'Employee not found'
             ], 404);
         }
 
+
         return $this->json(
             $this->employeeToArray($employee)
         );
     }
+
 
     #[Route('/{id}', methods: ['PUT'])]
     public function update(
@@ -103,7 +138,9 @@ final class EmployeeController extends AbstractController
         EntityManagerInterface $entityManager
     ): JsonResponse {
 
+
         $employee = $employeeRepository->find($id);
+
 
         if (!$employee) {
             return $this->json([
@@ -111,35 +148,80 @@ final class EmployeeController extends AbstractController
             ], 404);
         }
 
+
         $data = json_decode(
             $request->getContent(),
             true
         );
 
-        if (!$data) {
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
                 'error' => 'Invalid JSON'
             ], 400);
         }
 
+
         if (isset($data['fullName'])) {
-            $employee->setFullName($data['fullName']);
+
+            if (!is_string($data['fullName'])) {
+                return $this->json([
+                    'error' => 'FullName must be a string'
+                ], 400);
+            }
+
+
+            $employee->setFullName(
+                $data['fullName']
+            );
         }
+
 
         if (isset($data['email'])) {
-            $employee->setEmail($data['email']);
+
+            if (!is_string($data['email'])) {
+                return $this->json([
+                    'error' => 'Email must be a string'
+                ], 400);
+            }
+
+
+            if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+                return $this->json([
+                    'error' => 'Invalid email format'
+                ], 400);
+            }
+
+
+            $employee->setEmail(
+                $data['email']
+            );
         }
+
 
         if (isset($data['position'])) {
-            $employee->setPosition($data['position']);
+
+            if (!is_string($data['position'])) {
+                return $this->json([
+                    'error' => 'Position must be a string'
+                ], 400);
+            }
+
+
+            $employee->setPosition(
+                $data['position']
+            );
         }
 
+
         $entityManager->flush();
+
 
         return $this->json(
             $this->employeeToArray($employee)
         );
     }
+
 
     #[Route('/{id}', methods: ['DELETE'])]
     public function delete(
@@ -150,19 +232,34 @@ final class EmployeeController extends AbstractController
 
         $employee = $employeeRepository->find($id);
 
+
         if (!$employee) {
             return $this->json([
                 'error' => 'Employee not found'
             ], 404);
         }
 
+
         $employeeName = $employee->getFullName();
+
 
         $entityManager->remove($employee);
         $entityManager->flush();
 
+
         return $this->json([
             'message' => "Employee '{$employeeName}' deleted"
         ]);
+    }
+
+
+    private function employeeToArray(Employee $employee): array
+    {
+        return [
+            'id' => $employee->getId(),
+            'fullName' => $employee->getFullName(),
+            'email' => $employee->getEmail(),
+            'position' => $employee->getPosition(),
+        ];
     }
 }
