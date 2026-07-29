@@ -5,6 +5,7 @@ namespace App\Controller\Api;
 use App\Entity\Task;
 use App\Repository\TaskRepository;
 use App\Repository\ProjectRepository;
+use App\Repository\EmployeeRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -14,16 +15,31 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/tasks')]
 final class TaskController extends AbstractController
 {
+    private const ALLOWED_STATUSES = [
+        'PENDING',
+        'IN_PROGRESS',
+        'DONE'
+    ];
+
     #[Route('', methods: ['GET'])]
     public function index(
+        Request $request,
         TaskRepository $taskRepository
     ): JsonResponse {
 
-        $tasks = $taskRepository->findAll();
+        $tasks = $taskRepository->findByFilters(
+            $request->query->get('status'),
+            $request->query->get('project')
+            ? (int) $request->query->get('project')
+            : null,
+            $request->query->get('employee')
+            ? (int) $request->query->get('employee')
+            : null
+        );
 
         return $this->json(
             array_map(
-                fn(Task $task) => $this->taskToArray($task),
+                fn($task) => $this->taskToArray($task),
                 $tasks
             )
         );
@@ -34,6 +50,7 @@ final class TaskController extends AbstractController
     public function create(
         Request $request,
         ProjectRepository $projectRepository,
+        EmployeeRepository $employeeRepository,
         EntityManagerInterface $entityManager
     ): JsonResponse {
 
@@ -42,13 +59,11 @@ final class TaskController extends AbstractController
             true
         );
 
-
         if (!$data) {
             return $this->json([
                 'error' => 'Invalid JSON'
             ], 400);
         }
-
 
         if (!isset($data['title'], $data['projectId'])) {
             return $this->json([
@@ -56,11 +71,17 @@ final class TaskController extends AbstractController
             ], 400);
         }
 
+        $status = strtoupper($data['status'] ?? 'PENDING');
+
+        if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+            return $this->json([
+                'error' => 'Invalid status'
+            ], 400);
+        }
 
         $project = $projectRepository->find(
             $data['projectId']
         );
-
 
         if (!$project) {
             return $this->json([
@@ -68,6 +89,20 @@ final class TaskController extends AbstractController
             ], 404);
         }
 
+        $employee = null;
+
+        if (isset($data['employeeId'])) {
+
+            $employee = $employeeRepository->find(
+                $data['employeeId']
+            );
+
+            if (!$employee) {
+                return $this->json([
+                    'error' => 'Employee not found'
+                ], 404);
+            }
+        }
 
         $task = new Task();
 
@@ -76,10 +111,7 @@ final class TaskController extends AbstractController
             $data['description'] ?? null
         );
 
-        $task->setStatus(
-            $data['status'] ?? 'PENDING'
-        );
-
+        $task->setStatus($status);
 
         if (isset($data['dueDate'])) {
 
@@ -95,13 +127,11 @@ final class TaskController extends AbstractController
             }
         }
 
-
         $task->setProject($project);
-
+        $task->setEmployee($employee);
 
         $entityManager->persist($task);
         $entityManager->flush();
-
 
         return $this->json(
             $this->taskToArray($task),
@@ -173,9 +203,16 @@ final class TaskController extends AbstractController
 
 
         if (isset($data['status'])) {
-            $task->setStatus(
-                $data['status']
-            );
+
+            $status = strtoupper($data['status']);
+
+            if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+                return $this->json([
+                    'error' => 'Invalid status'
+                ], 400);
+            }
+
+            $task->setStatus($status);
         }
 
 

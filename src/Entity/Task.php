@@ -25,7 +25,7 @@ class Task
     private ?string $status = 'PENDING';
 
     #[ORM\Column]
-    private ?\DateTimeImmutable $createdAt = null;
+    private ?\DateTimeImmutable $createdAt;
 
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $dueDate = null;
