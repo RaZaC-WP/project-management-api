@@ -33,6 +33,8 @@ security:
             jwt: ~
 
     access_control:
+        - { path: ^/api/doc, roles: PUBLIC_ACCESS }
+        - { path: ^/api/doc.json, roles: PUBLIC_ACCESS }
         # Login endpoint is public
         - { path: ^/api/login_check, roles: PUBLIC_ACCESS }
 
