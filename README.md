@@ -52,7 +52,29 @@ DATABASE_URL="mysql://root:@127.0.0.1:3306/project_management?serverVersion=8.0.
 
 The API uses JWT authentication with LexikJWTAuthenticationBundle.
 
-## 1. Generate a passphrase
+## OpenSSL Configuration on Windows
+
+This project uses JWT authentication with RSA keys, which requires a properly configured OpenSSL environment in PHP.
+
+In some Windows environments (for example, when using WampServer), the PHP OpenSSL extension may be enabled, but OpenSSL may not find its configuration file automatically. In this case, it is necessary to define the `OPENSSL_CONF` environment variable pointing to the OpenSSL configuration file.
+
+Example:
+
+```cmd
+set OPENSSL_CONF=C:\wamp64\bin\php\php8.3.0\extras\ssl\openssl.cnf
+
+## 1. Configure JWT paths
+
+Add the following configuration to `.env.local`:
+
+```dotenv
+JWT_SECRET_KEY=%kernel.project_dir%/config/jwt/private.pem
+JWT_PUBLIC_KEY=%kernel.project_dir%/config/jwt/public.pem
+JWT_PASSPHRASE=
+```
+---
+
+## 2. Generate a passphrase
 
 Generate a secure passphrase:
 
@@ -63,12 +85,12 @@ openssl rand -hex 32
 Copy the generated value and configure it in `.env.local`:
 
 ```dotenv
-JWT_PASSPHRASE=<generated_passphrase>
+JWT_PASSPHRASE="<generated_passphrase>"
 ```
 
 ---
 
-## 2. Generate JWT keys
+## 3. Generate JWT keys
 
 JWT private keys are generated locally and are not included in the repository.
 
@@ -87,17 +109,6 @@ config/jwt/public.pem
 
 ---
 
-## 3. Configure JWT paths
-
-Add the following configuration to `.env.local`:
-
-```dotenv
-JWT_SECRET_KEY=%kernel.project_dir%/config/jwt/private.pem
-JWT_PUBLIC_KEY=%kernel.project_dir%/config/jwt/public.pem
-JWT_PASSPHRASE=your_generated_passphrase
-```
-
-The `JWT_PASSPHRASE` value must be the same passphrase used when generating the JWT keys.
 
 # Database setup
 
@@ -173,11 +184,22 @@ Use:
 Authorization: Bearer JWT_TOKEN
 ```
 
----
+The JWT token returned after login is required for all protected REST API requests.
 
-# Application status
+When using Postman, select **Bearer Token** in the **Authorization** tab and paste the token into the **Token** field.
 
-Health endpoint:
+![JWT_Token_Postman](docs/images/JWT_token.png)
+![JWT_Token_Postman_Example](docs/images/JWT_token_example.png)
+
+When using the API documentation(http://localhost:8000/api/doc), click the **Authorize** button, enter the token in the **Value** field, and confirm.
+![Swagger_Auth](docs/images/Swagger_Auth.png)
+![Swagger_Auth_Example](docs/images/Swagger_Auth_Example.png)
+
+
+The token will be sent in the request header as:
+
+```http
+Authorization: Bearer JWT_TOKEN
 
 ```
 GET /
