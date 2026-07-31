@@ -12,7 +12,6 @@ use App\OpenApi\TaskCreateRequest;
 use App\OpenApi\TaskByIdResponse;
 use App\OpenApi\TaskUpdateRequest;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -21,12 +20,44 @@ use Nelmio\ApiDocBundle\Attribute\Model;
 
 #[Route('/api/tasks')]
 #[OA\Tag(name: 'Tasks')]
-final class TaskController extends AbstractController
+final class TaskController extends AbstractApiController
 {
 
     #[OA\Get(
-        summary: 'List tasks',
+        summary: 'Returns all tasks or filters them by status, project or employee.',
         security: [['Bearer' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'status',
+                in: 'query',
+                description: 'Filter by task status (PENDING, IN_PROGRESS, DONE)',
+                required: false,
+                schema: new OA\Schema(
+                    type: 'string',
+                    enum: ['PENDING', 'IN_PROGRESS', 'DONE']
+                )
+            ),
+            new OA\Parameter(
+                name: 'project',
+                in: 'query',
+                description: 'Filter by project id',
+                required: false,
+                schema: new OA\Schema(
+                    type: 'integer',
+                    example: 1
+                )
+            ),
+            new OA\Parameter(
+                name: 'employee',
+                in: 'query',
+                description: 'Filter by employee id',
+                required: false,
+                schema: new OA\Schema(
+                    type: 'integer',
+                    example: 2
+                )
+            )
+        ],
         responses: [
             new OA\Response(
                 response: 200,
@@ -100,10 +131,11 @@ final class TaskController extends AbstractController
         EntityManagerInterface $entityManager
     ): JsonResponse {
 
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
+        $data = $this->getJsonData($request);
+
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
 
         if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
@@ -174,14 +206,35 @@ final class TaskController extends AbstractController
             $employee
         );
 
+        $dueDate = null;
         if (isset($data['dueDate'])) {
 
-            $task->setDueDate(
-                new \DateTimeImmutable(
-                    $data['dueDate']
-                )
+            $dueDate = \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                $data['dueDate']
             );
+
+            if (!$dueDate) {
+                return $this->json([
+                    'error' => 'Invalid dueDate format. Expected Y-m-d'
+                ], 400);
+            }
+
+
+            if ($dueDate && $dueDate < $task->getCreatedAt()) {
+                return $this->json([
+                    'error' => 'Due date cannot be before creation date'
+                ], 400);
+            }
+
+            if ($dueDate < $task->getCreatedAt()) {
+                return $this->json([
+                    'error' => 'Due date cannot be before creation date'
+                ], 400);
+            }
         }
+
+        $task->setDueDate($dueDate);
 
         $entityManager->persist($task);
         $entityManager->flush();
@@ -238,8 +291,16 @@ final class TaskController extends AbstractController
         int $id,
         Request $request,
         TaskRepository $taskRepository,
-        EntityManagerInterface $entityManager
+        EntityManagerInterface $entityManager,
+        ProjectRepository $projectRepository,
+        EmployeeRepository $employeeRepository
     ): JsonResponse {
+
+        $data = $this->getJsonData($request);
+
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
 
         $task = $taskRepository->find($id);
 
@@ -248,11 +309,6 @@ final class TaskController extends AbstractController
                 'error' => 'Task not found'
             ], 404);
         }
-
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
 
         if (isset($data['title'])) {
             $task->setTitle(
@@ -281,13 +337,72 @@ final class TaskController extends AbstractController
             $task->setStatus($status);
         }
 
+        $dueDate = null;
         if (isset($data['dueDate'])) {
 
-            $task->setDueDate(
-                new \DateTimeImmutable(
-                    $data['dueDate']
-                )
+            $dueDate = \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                $data['dueDate']
             );
+
+            if (!$dueDate) {
+                return $this->json([
+                    'error' => 'Invalid dueDate format. Expected Y-m-d'
+                ], 400);
+            }
+
+
+            if ($dueDate && $dueDate < $task->getCreatedAt()) {
+                return $this->json([
+                    'error' => 'Due date cannot be before creation date'
+                ], 400);
+            }
+
+            if ($dueDate < $task->getCreatedAt()) {
+                return $this->json([
+                    'error' => 'Due date cannot be before creation date'
+                ], 400);
+            }
+        }
+
+        $task->setDueDate($dueDate);
+
+        if (isset($data['projectId'])) {
+
+            $project = $projectRepository->find(
+                $data['projectId']
+            );
+
+            if (!$project) {
+                return $this->json([
+                    'error' => 'Project not found'
+                ], 404);
+            }
+
+            $task->setProject($project);
+        }
+
+
+        if (array_key_exists('employeeId', $data)) {
+
+            if ($data['employeeId'] === null) {
+
+                $task->setEmployee(null);
+
+            } else {
+
+                $employee = $employeeRepository->find(
+                    $data['employeeId']
+                );
+
+                if (!$employee) {
+                    return $this->json([
+                        'error' => 'Employee not found'
+                    ], 404);
+                }
+
+                $task->setEmployee($employee);
+            }
         }
 
         $entityManager->flush();

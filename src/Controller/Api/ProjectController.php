@@ -9,16 +9,18 @@ use App\OpenApi\ProjectCreateRequest;
 use App\OpenApi\ProjectByIdResponse;
 use App\OpenApi\ProjectUpdateRequest;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 use OpenApi\Attributes as OA;
 use Nelmio\ApiDocBundle\Attribute\Model;
+use App\Repository\EmployeeRepository;
+use App\Repository\TaskRepository;
+use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
 
 #[Route('/api/projects')]
 #[OA\Tag(name: 'Projects')]
-final class ProjectController extends AbstractController
+final class ProjectController extends AbstractApiController
 {
 
     #[OA\Get(
@@ -74,13 +76,16 @@ final class ProjectController extends AbstractController
     #[Route('', methods: ['POST'])]
     public function create(
         Request $request,
-        EntityManagerInterface $entityManager
+        EntityManagerInterface $entityManager,
+        EmployeeRepository $employeeRepository,
+        TaskRepository $taskRepository
     ): JsonResponse {
 
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
+        $data = $this->getJsonData($request);
+
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
 
         if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->json([
@@ -90,9 +95,9 @@ final class ProjectController extends AbstractController
 
         if (
             !isset(
-                $data['name'],
-                $data['startDate']
-            )
+            $data['name'],
+            $data['startDate']
+        )
         ) {
             return $this->json([
                 'error' => 'Name and startDate are required'
@@ -148,12 +153,27 @@ final class ProjectController extends AbstractController
 
         $project->setStartDate($startDate);
         $project->setEndDate($endDate);
+        try {
+
+            $this->updateRelations(
+                $project,
+                $data,
+                $employeeRepository,
+                $taskRepository
+            );
+
+        } catch (\RuntimeException $e) {
+
+            return $this->json([
+                'error' => $e->getMessage()
+            ], 404);
+        }
 
         $entityManager->persist($project);
         $entityManager->flush();
 
         return $this->json(
-            $this->projectToArray($project),
+            $this->projectDetailToArray($project),
             201
         );
     }
@@ -186,7 +206,7 @@ final class ProjectController extends AbstractController
         }
 
         return $this->json(
-            $this->projectToArray($project)
+            $this->projectDetailToArray($project)
         );
     }
 
@@ -214,8 +234,16 @@ final class ProjectController extends AbstractController
         int $id,
         Request $request,
         ProjectRepository $projectRepository,
-        EntityManagerInterface $entityManager
+        EntityManagerInterface $entityManager,
+        EmployeeRepository $employeeRepository,
+        TaskRepository $taskRepository
     ): JsonResponse {
+
+        $data = $this->getJsonData($request);
+
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
 
         $project = $projectRepository->find($id);
 
@@ -224,11 +252,6 @@ final class ProjectController extends AbstractController
                 'error' => 'Project not found'
             ], 404);
         }
-
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
 
         if (isset($data['name'])) {
             $project->setName($data['name']);
@@ -252,10 +275,26 @@ final class ProjectController extends AbstractController
             );
         }
 
+        try {
+
+            $this->updateRelations(
+                $project,
+                $data,
+                $employeeRepository,
+                $taskRepository
+            );
+
+        } catch (\RuntimeException $e) {
+
+            return $this->json([
+                'error' => $e->getMessage()
+            ], 404);
+        }
+
         $entityManager->flush();
 
         return $this->json(
-            $this->projectToArray($project)
+            $this->projectDetailToArray($project)
         );
     }
 
@@ -280,8 +319,27 @@ final class ProjectController extends AbstractController
 
         $name = $project->getName();
 
-        $entityManager->remove($project);
-        $entityManager->flush();
+        if ($project->getTasks()->count() > 0) {
+            return $this->json([
+                'error' => "Project '{$name}' cannot be deleted because it has associated tasks."
+            ], 409);
+        }
+
+        try {
+
+            foreach ($project->getEmployees() as $employee) {
+                $project->removeEmployee($employee);
+            }
+
+            $entityManager->remove($project);
+            $entityManager->flush();
+
+        } catch (ForeignKeyConstraintViolationException $e) {
+
+            return $this->json([
+                'error' => "Project '{$name}' cannot be deleted."
+            ], 409);
+        }
 
         return $this->json([
             'message' => "Project '{$name}' deleted"
@@ -297,5 +355,83 @@ final class ProjectController extends AbstractController
             'startDate' => $project->getStartDate()?->format('Y-m-d'),
             'endDate' => $project->getEndDate()?->format('Y-m-d')
         ];
+    }
+
+    private function projectDetailToArray(Project $project): array
+    {
+        return [
+            'id' => $project->getId(),
+            'name' => $project->getName(),
+            'description' => $project->getDescription(),
+            'startDate' => $project->getStartDate()?->format('Y-m-d'),
+            'endDate' => $project->getEndDate()?->format('Y-m-d'),
+
+            'employees' => array_map(
+                fn($employee) => [
+                    'id' => $employee->getId(),
+                    'fullName' => $employee->getFullName(),
+                    'email' => $employee->getEmail(),
+                    'position' => $employee->getPosition()
+                ],
+                $project->getEmployees()->toArray()
+            ),
+
+            'tasks' => array_map(
+                fn($task) => [
+                    'id' => $task->getId(),
+                    'title' => $task->getTitle(),
+                    'status' => $task->getStatus()
+                ],
+                $project->getTasks()->toArray()
+            )
+        ];
+    }
+    private function updateRelations(
+        Project $project,
+        array $data,
+        EmployeeRepository $employeeRepository,
+        TaskRepository $taskRepository
+    ): void {
+
+        if (isset($data['employeeIds'])) {
+
+            foreach ($project->getEmployees() as $employee) {
+                $project->removeEmployee($employee);
+            }
+
+            foreach ($data['employeeIds'] as $employeeId) {
+
+                $employee = $employeeRepository->find($employeeId);
+
+                if (!$employee) {
+                    throw new \RuntimeException(
+                        "Employee with id {$employeeId} not found"
+                    );
+                }
+
+                $project->addEmployee($employee);
+            }
+        }
+
+
+        if (isset($data['taskIds'])) {
+
+            foreach ($project->getTasks() as $task) {
+                $project->removeTask($task);
+            }
+
+            foreach ($data['taskIds'] as $taskId) {
+
+                $task = $taskRepository->find($taskId);
+
+                if (!$task) {
+                    throw new \RuntimeException(
+                        "Task with id {$taskId} not found"
+                    );
+                }
+
+                $project->addTask($task);
+            }
+        }
     }
 }

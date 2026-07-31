@@ -5,7 +5,6 @@ namespace App\Controller\Api;
 use App\Entity\Employee;
 use App\Repository\EmployeeRepository;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -15,10 +14,11 @@ use App\OpenApi\EmployeeListResponse;
 use App\OpenApi\EmployeeCreateRequest;
 use App\OpenApi\EmployeeByIdResponse;
 use App\OpenApi\EmployeeUpdateRequest;
+use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
 
 #[Route('/api/employees')]
 #[OA\Tag(name: 'Employees')]
-final class EmployeeController extends AbstractController
+final class EmployeeController extends AbstractApiController
 {
 
     #[OA\Get(
@@ -77,23 +77,18 @@ final class EmployeeController extends AbstractController
         EntityManagerInterface $entityManager
     ): JsonResponse {
 
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
+        $data = $this->getJsonData($request);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json([
-                'error' => 'Invalid JSON'
-            ], 400);
+        if ($data instanceof JsonResponse) {
+            return $data;
         }
 
         if (
             !isset(
-                $data['fullName'],
-                $data['email'],
-                $data['position']
-            )
+            $data['fullName'],
+            $data['email'],
+            $data['position']
+        )
         ) {
             return $this->json([
                 'error' => 'FullName, email and position are required'
@@ -150,7 +145,7 @@ final class EmployeeController extends AbstractController
         }
 
         return $this->json(
-            $this->employeeToArray($employee)
+            $this->employeeDetailToArray($employee)
         );
     }
 
@@ -181,6 +176,12 @@ final class EmployeeController extends AbstractController
         EntityManagerInterface $entityManager
     ): JsonResponse {
 
+        $data = $this->getJsonData($request);
+
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
+
         $employee = $employeeRepository->find($id);
 
         if (!$employee) {
@@ -188,11 +189,6 @@ final class EmployeeController extends AbstractController
                 'error' => 'Employee not found'
             ], 404);
         }
-
-        $data = json_decode(
-            $request->getContent(),
-            true
-        );
 
         if (isset($data['fullName'])) {
             $employee->setFullName(
@@ -227,12 +223,20 @@ final class EmployeeController extends AbstractController
     }
 
     #[OA\Delete(
-        summary: 'Delete employee',
+        summary: 'Delete employee by id',
         security: [['Bearer' => []]],
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Employee deleted'
+                description: 'Employee Pedro Picapiedra deleted successfully'
+            ),
+            new OA\Response(
+                response: 404,
+                description: 'Employee Manolo Lama not found'
+            ),
+            new OA\Response(
+                response: 409,
+                description: 'Employee Iker Jimenez is assigned to one or more tasks'
             )
         ]
     )]
@@ -252,6 +256,16 @@ final class EmployeeController extends AbstractController
         }
 
         $name = $employee->getFullName();
+
+        if (
+            $employee->getProjects()->count() > 0 ||
+            $employee->getTasks()->count() > 0
+        ) {
+            return $this->json([
+                'error' => "Employee '{$name}' cannot be deleted because it has assigned projects or tasks."
+            ], 409);
+        }
+
         $entityManager->remove($employee);
         $entityManager->flush();
 
@@ -259,7 +273,6 @@ final class EmployeeController extends AbstractController
             'message' => "Employee '{$name}' deleted"
         ]);
     }
-
     private function employeeToArray(Employee $employee): array
     {
         return [
@@ -267,6 +280,34 @@ final class EmployeeController extends AbstractController
             'fullName' => $employee->getFullName(),
             'email' => $employee->getEmail(),
             'position' => $employee->getPosition(),
+        ];
+    }
+
+    private function employeeDetailToArray(Employee $employee): array
+    {
+        return [
+            'id' => $employee->getId(),
+            'fullName' => $employee->getFullName(),
+            'email' => $employee->getEmail(),
+            'position' => $employee->getPosition(),
+
+            'projects' => array_map(
+                fn($project) => [
+                    'id' => $project->getId(),
+                    'name' => $project->getName(),
+                    'description' => $project->getDescription()
+                ],
+                $employee->getProjects()->toArray()
+            ),
+
+            'tasks' => array_map(
+                fn($task) => [
+                    'id' => $task->getId(),
+                    'title' => $task->getTitle(),
+                    'status' => $task->getStatus()
+                ],
+                $employee->getTasks()->toArray()
+            )
         ];
     }
 }
