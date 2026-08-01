@@ -90,10 +90,25 @@ final class TaskController extends AbstractApiController
             }
         }
 
+        $projectId = $request->query->get('project');
+        $employeeId = $request->query->get('employee');
+
+        if ($projectId !== null && !ctype_digit((string) $projectId)) {
+            return $this->json([
+                'error' => 'project must be a valid id'
+            ], 400);
+        }
+
+        if ($employeeId !== null && !ctype_digit((string) $employeeId)) {
+            return $this->json([
+                'error' => 'employee must be a valid id'
+            ], 400);
+        }
+
         $tasks = $taskRepository->findByFilters(
             $status,
-            $request->query->get('project'),
-            $request->query->get('employee')
+            $projectId !== null ? (int) $projectId : null,
+            $employeeId !== null ? (int) $employeeId : null
         );
 
         return $this->json(
@@ -206,32 +221,16 @@ final class TaskController extends AbstractApiController
             $employee
         );
 
-        $dueDate = null;
-        if (isset($data['dueDate'])) {
+        $dueDate = $this->parseDate($data['dueDate'] ?? null, 'dueDate');
 
-            $dueDate = \DateTimeImmutable::createFromFormat(
-                'Y-m-d',
-                $data['dueDate']
-            );
+        if ($dueDate instanceof JsonResponse) {
+            return $dueDate;
+        }
 
-            if (!$dueDate) {
-                return $this->json([
-                    'error' => 'Invalid dueDate format. Expected Y-m-d'
-                ], 400);
-            }
-
-
-            if ($dueDate && $dueDate < $task->getCreatedAt()) {
-                return $this->json([
-                    'error' => 'Due date cannot be before creation date'
-                ], 400);
-            }
-
-            if ($dueDate < $task->getCreatedAt()) {
-                return $this->json([
-                    'error' => 'Due date cannot be before creation date'
-                ], 400);
-            }
+        if ($dueDate && $dueDate < $task->getCreatedAt()) {
+            return $this->json([
+                'error' => 'Due date cannot be before creation date'
+            ], 400);
         }
 
         $task->setDueDate($dueDate);
@@ -337,20 +336,13 @@ final class TaskController extends AbstractApiController
             $task->setStatus($status);
         }
 
-        $dueDate = null;
-        if (isset($data['dueDate'])) {
+        if (array_key_exists('dueDate', $data)) {
 
-            $dueDate = \DateTimeImmutable::createFromFormat(
-                'Y-m-d',
-                $data['dueDate']
-            );
+            $dueDate = $this->parseDate($data['dueDate'], 'dueDate');
 
-            if (!$dueDate) {
-                return $this->json([
-                    'error' => 'Invalid dueDate format. Expected Y-m-d'
-                ], 400);
+            if ($dueDate instanceof JsonResponse) {
+                return $dueDate;
             }
-
 
             if ($dueDate && $dueDate < $task->getCreatedAt()) {
                 return $this->json([
@@ -358,14 +350,8 @@ final class TaskController extends AbstractApiController
                 ], 400);
             }
 
-            if ($dueDate < $task->getCreatedAt()) {
-                return $this->json([
-                    'error' => 'Due date cannot be before creation date'
-                ], 400);
-            }
+            $task->setDueDate($dueDate);
         }
-
-        $task->setDueDate($dueDate);
 
         if (isset($data['projectId'])) {
 

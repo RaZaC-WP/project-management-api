@@ -58,7 +58,11 @@ class EmployeeByIdResponse
 
 class EmployeeUpdateRequest
 {
-    public ?string $fullName = null;
-    public ?string $email = null;
-    public ?string $position = null;
+    public int $id = 1;
+    
+    public string $fullName = "Javier Molinos";
+
+    public string $email = "javi@gmail.com";
+
+    public string $position = "Backend Developer";
 }

@@ -8,6 +8,7 @@ Features:
 - CRUD operations for Projects, Employees and Tasks
 - Task filtering
 - Swagger API documentation
+- Automated test suite (PHPUnit)
 
 ---
 
@@ -62,6 +63,7 @@ Example:
 
 ```cmd
 set OPENSSL_CONF=C:\wamp64\bin\php\php8.3.0\extras\ssl\openssl.cnf
+```
 
 ## 1. Configure JWT paths
 
@@ -72,6 +74,7 @@ JWT_SECRET_KEY=%kernel.project_dir%/config/jwt/private.pem
 JWT_PUBLIC_KEY=%kernel.project_dir%/config/jwt/public.pem
 JWT_PASSPHRASE=
 ```
+
 ---
 
 ## 2. Generate a passphrase
@@ -108,7 +111,6 @@ config/jwt/public.pem
 ```
 
 ---
-
 
 # Database setup
 
@@ -165,7 +167,7 @@ Example:
 
 ```json
 {
-    "username": "admin@test.com",
+    "email": "admin@test.com",
     "password": "Aabc123"
 }
 ```
@@ -178,48 +180,25 @@ Response:
 }
 ```
 
-Use:
+The token must be sent on every protected request as:
 
-```
+```http
 Authorization: Bearer JWT_TOKEN
 ```
-
-The JWT token returned after login is required for all protected REST API requests.
 
 When using Postman, select **Bearer Token** in the **Authorization** tab and paste the token into the **Token** field.
 
 ![JWT_Token_Postman](docs/images/JWT_token.png)
 ![JWT_Token_Postman_Example](docs/images/JWT_token_example.png)
 
-When using the API documentation(http://localhost:8000/api/doc), click the **Authorize** button, enter the token in the **Value** field, and confirm.
+When using the API documentation (http://localhost:8000/api/doc), click the **Authorize** button, enter the token in the **Value** field, and confirm.
+
 ![Swagger_Auth](docs/images/Swagger_Auth.png)
 ![Swagger_Auth_Example](docs/images/Swagger_Auth_Example.png)
-
-
-The token will be sent in the request header as:
-
-```http
-Authorization: Bearer JWT_TOKEN
-
-```
-GET /
-```
-
-Example response:
-
-```json
-{
-    "name": "Project Management API",
-    "status": "running",
-    "documentation": "/api/doc"
-}
-```
 
 ---
 
 # API Documentation
-
-Swagger:
 
 The Swagger documentation contains the complete API specification, including request schemas and responses.
 
@@ -269,6 +248,8 @@ GET /api/tasks?project=1
 GET /api/tasks?employee=1
 ```
 
+---
+
 # Error handling
 
 The API returns JSON responses for errors.
@@ -304,3 +285,55 @@ admin@test.com
 Password:
 Aabc123
 ```
+
+---
+
+# Automated tests
+
+The project includes a PHPUnit test suite covering the main API flows: creating/updating/deleting projects and tasks, validation errors, filters, and the JWT login flow.
+
+## 1. Install dev dependencies
+
+Test dependencies (PHPUnit, `symfony/browser-kit`, `symfony/css-selector`, `symfony/phpunit-bridge`) are declared in `composer.json`. If your `composer.lock` predates them, sync it once with:
+
+```bash
+composer update phpunit/phpunit symfony/browser-kit symfony/css-selector symfony/phpunit-bridge
+```
+
+Otherwise a plain `composer install` is enough.
+
+## 2. Configure the test environment
+
+Tests run under `APP_ENV=test`, which **does not** read `.env.local` (Symfony skips it on purpose for `test`/`prod`, so tests don't silently depend on your personal dev setup). Because of this, create a separate `.env.test.local` (git-ignored, never committed) with the same kind of values you already have in `.env.local`:
+
+```dotenv
+DATABASE_URL="mysql://root:@127.0.0.1:3306/project_management?serverVersion=8.0.32&charset=utf8mb4"
+JWT_SECRET_KEY=%kernel.project_dir%/config/jwt/private.pem
+JWT_PUBLIC_KEY=%kernel.project_dir%/config/jwt/public.pem
+JWT_PASSPHRASE="<the same passphrase you generated earlier>"
+```
+
+You can reuse the exact same JWT key pair you already generated for `dev` — no need to create new ones. You **can** reuse the same database name too: `config/packages/doctrine.yaml` automatically appends a `_test` suffix for the `test` environment, so it will create and use `project_management_test` without touching your dev database.
+
+## 3. Create the test database
+
+```bash
+php bin/console doctrine:database:create --env=test
+php bin/console doctrine:migrations:migrate --env=test --no-interaction
+```
+
+Note: the test suite does **not** rely on `doctrine:fixtures:load` — each test creates and cleans up its own data automatically (wrapped in a transaction that's rolled back after every test), so it never depends on what you have loaded in your dev database.
+
+## 4. Run the tests
+
+```bash
+php bin/phpunit
+```
+
+Expected output:
+
+```
+OK (26 tests, ...)
+```
+
+If a test fails, the error message together with the HTTP response body it prints is usually enough to tell whether it's an environment issue (missing JWT keys, wrong `DATABASE_URL`).

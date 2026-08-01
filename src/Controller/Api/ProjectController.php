@@ -110,31 +110,16 @@ final class ProjectController extends AbstractApiController
             ], 400);
         }
 
-        $startDate = \DateTimeImmutable::createFromFormat(
-            'Y-m-d',
-            $data['startDate']
-        );
+        $startDate = $this->parseDate($data['startDate'], 'startDate');
 
-        if (!$startDate) {
-            return $this->json([
-                'error' => 'Invalid startDate format. Expected Y-m-d'
-            ], 400);
+        if ($startDate instanceof JsonResponse) {
+            return $startDate;
         }
 
-        $endDate = null;
+        $endDate = $this->parseDate($data['endDate'] ?? null, 'endDate');
 
-        if (isset($data['endDate'])) {
-
-            $endDate = \DateTimeImmutable::createFromFormat(
-                'Y-m-d',
-                $data['endDate']
-            );
-
-            if (!$endDate) {
-                return $this->json([
-                    'error' => 'Invalid endDate format. Expected Y-m-d'
-                ], 400);
-            }
+        if ($endDate instanceof JsonResponse) {
+            return $endDate;
         }
 
         if ($endDate && $endDate < $startDate) {
@@ -263,16 +248,30 @@ final class ProjectController extends AbstractApiController
 
         if (isset($data['startDate'])) {
 
-            $project->setStartDate(
-                new \DateTimeImmutable($data['startDate'])
-            );
+            $startDate = $this->parseDate($data['startDate'], 'startDate');
+
+            if ($startDate instanceof JsonResponse) {
+                return $startDate;
+            }
+
+            $project->setStartDate($startDate);
         }
 
-        if (isset($data['endDate'])) {
+        if (array_key_exists('endDate', $data)) {
 
-            $project->setEndDate(
-                new \DateTimeImmutable($data['endDate'])
-            );
+            $endDate = $this->parseDate($data['endDate'], 'endDate');
+
+            if ($endDate instanceof JsonResponse) {
+                return $endDate;
+            }
+
+            $project->setEndDate($endDate);
+        }
+
+        if ($project->getEndDate() && $project->getEndDate() < $project->getStartDate()) {
+            return $this->json([
+                'error' => 'End date cannot be before start date'
+            ], 400);
         }
 
         try {
